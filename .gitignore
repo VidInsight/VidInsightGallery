@@ -1,0 +1,44 @@
+# Ortam Değişkenleri
+.env
+*.env
+
+# Sanal Ortam
+.venv/
+venv/
+env/
+
+# Python Cache Dosyaları
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Log Dosyaları
+*.log
+logs/
+
+# IDE Dosyaları
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Sistem Dosyaları
+.DS_Store
+Thumbs.db
+
+# Proje Özel Dosyalar
+*.sqlite3
+*.db
+
+# Yapay Zeka Üretilen Resimler
+generated_images/
+
+# Paket ve Dağıtım Dosyaları
+dist/
+build/
+*.egg-info/
+
+# Test ve Coverage Raporları
+.coverage
+htmlcov/
+.pytest_cache/

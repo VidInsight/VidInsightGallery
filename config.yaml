@@ -1,0 +1,85 @@
+content_generation:
+  # Daily content generation settings
+  posts:
+    enabled: true
+    count: 2
+    genres: 
+      - abstract
+      - game
+      - movie
+      - portrait
+      - van_gogh
+      - anime
+      - photography
+      - fantasy
+    resolution: "1080x1080"  # Square format for posts
+    
+  stories:
+    enabled: true
+    count: 1
+    genres: 
+      - abstract
+      - game
+      - movie
+      - portrait
+      - van_gogh
+      - anime
+      - photography
+      - fantasy
+    resolution: "1080x1920"  # Story format
+
+scheduling:
+  # Posting schedule settings
+  daily_runs:
+    - time: "10:00"  # First daily run
+      enabled: true
+    - time: "18:00"  # Optional second run
+      enabled: false
+
+captions:
+  # Caption generation settings
+  use_emojis: true
+  hashtag_style: "comprehensive"  # Options: minimal, comprehensive, none
+  custom_hashtags: 
+    - "#AIArt"
+    - "#GenerativeArt"
+    - "#CreativeTechnology"
+
+logging:
+  # Logging configuration
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file_path: "ai_post_pipeline.log"
+  console_output: true
+
+error_handling:
+  # Error management settings
+  retry_attempts: 3
+  retry_delay_minutes: 15
+  send_error_notifications: false
+  notification_email: ""  # Add email for error notifications
+
+social_media:
+  # Platform-specific settings
+  instagram:
+    enabled: true
+    post_types:  # What can be posted
+      - feed_post
+      - story
+    max_daily_posts: 5
+  
+  # Future expansion for other platforms
+  # twitter:
+  #   enabled: false
+  # facebook:
+  #   enabled: false
+
+ai_generation:
+  # AI image generation settings
+  provider: "openai"  # Could support multiple providers in future
+  image_quality: "standard"  # Options: standard, high, low
+  creativity_level: 0.7  # 0-1 range for prompt creativity
+
+# Experimental features (future expansions)
+experimental:
+  multi_language_captions: false
+  genre_rotation_strategy: "random"  # Could implement more sophisticated rotation
