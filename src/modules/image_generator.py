@@ -3,6 +3,9 @@ import logging
 import requests
 import random
 from dotenv import load_dotenv
+import httpx
+import io
+import base64
 
 # Load environment variables at the beginning
 load_dotenv()
@@ -74,16 +77,19 @@ class GenreArtGenerator:
             }
         }
 
-    def generate_art(self, genre, sub_genre=None, num_images=3, resolution="1024x1024", extra_details=None):
+    def generate_art(self, genre, sub_genre=None, num_images=1, resolution="1024x1024", extra_details=None):
         """
-        Generate a specified number of images for a given genre and sub-genre.
+        Generate an image for a given genre and sub-genre, returning it as bytes in memory.
 
-        :param genre: Art genre (e.g., abstract, game, movie, etc.)
-        :param sub_genre: Specific sub-genre (e.g., Cubist for abstract)
-        :param num_images: Number of images to generate
-        :param resolution: Resolution of the generated images
-        :param extra_details: Additional details for the prompt
-        :return: List of file paths for generated images
+        Args:
+            genre (str): Art genre (e.g., abstract, game, movie, etc.)
+            sub_genre (str, optional): Specific sub-genre (e.g., Cubist for abstract)
+            num_images (int, optional): Number of images to generate (default: 1)
+            resolution (str, optional): Resolution of the generated images
+            extra_details (str, optional): Additional details for the prompt
+
+        Returns:
+            list: List of image data as bytes objects
         """
         if genre not in self.genres:
             raise ValueError(f"Genre '{genre}' is not supported. Available genres: {', '.join(self.genres.keys())}")
@@ -96,110 +102,115 @@ class GenreArtGenerator:
 
         generated_images = []
 
-        for i in range(num_images):
-            # Generate prompt components
-            theme = random.choice(genre_details["themes"])
-            style = random.choice(genre_details["styles"])
-            palette = random.choice(genre_details["palettes"])
+        for _ in range(num_images):
+            # Select random components if not specified
+            selected_theme = random.choice(genre_details["themes"])
+            selected_style = random.choice(genre_details["styles"])
+            selected_palette = random.choice(genre_details["palettes"])
             
-            self.logger.info(f"Generating image {i+1} with: Genre='{genre}', Sub-genre='{sub_genre}', "
-                             f"Theme='{theme}', Style='{style}', Palette='{palette}'")
-            
-            # Generate art and save the file
-            save_path = self.generate_art_image(
-                theme, style, palette, resolution, genre, sub_genre, extra_details
-            )
-            if save_path:
-                generated_images.append(save_path)
-        
+            # Construct the prompt
+            prompt = f"Create a {genre} artwork"
+            if sub_genre:
+                prompt += f" in {sub_genre} style"
+            prompt += f" with {selected_theme} theme, using {selected_style} artistic style"
+            prompt += f" and a {selected_palette} color palette"
+            if extra_details:
+                prompt += f". Additional details: {extra_details}"
+
+            try:
+                # Create a custom HTTP client without proxy configuration
+                client = httpx.Client(timeout=30.0)
+                
+                # Prepare the headers and data
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}"
+                }
+                
+                # Parse resolution into width and height
+                width, height = map(int, resolution.split('x'))
+                
+                # Prepare the request data according to DALL-E API specifications
+                data = {
+                    "model": "dall-e-3",  # Specify DALL-E 3 model
+                    "prompt": prompt,
+                    "n": 1,  # DALL-E 3 only supports n=1
+                    "size": f"{width}x{height}",
+                    "quality": "standard",
+                    "response_format": "b64_json"
+                }
+
+                self.logger.info(f"Sending request to OpenAI with prompt: {prompt}")
+                
+                # Make the API request
+                response = client.post(self.endpoint, headers=headers, json=data)
+                
+                if response.status_code != 200:
+                    error_detail = response.json().get('error', {}).get('message', 'Unknown error')
+                    self.logger.error(f"OpenAI API error: {error_detail}")
+                    raise Exception(f"OpenAI API error: {error_detail}")
+                
+                response_data = response.json()
+                
+                # Get the image data from the response
+                image_data = response_data["data"][0]["b64_json"]
+                
+                # Convert base64 to bytes
+                image_bytes = base64.b64decode(image_data)
+                
+                generated_images.append({
+                    'image_data': image_bytes,
+                    'metadata': {
+                        'genre': genre,
+                        'sub_genre': sub_genre,
+                        'theme': selected_theme,
+                        'style': selected_style,
+                        'palette': selected_palette
+                    }
+                })
+                
+                self.logger.info(f"Successfully generated {genre} image")
+                
+            except Exception as e:
+                self.logger.error(f"Error generating image: {str(e)}")
+                raise
+
         return generated_images
 
-    def generate_art_image(self, theme, style, palette, resolution, genre, sub_genre, extra_details=None):
-        """
-        Core function to generate high-quality images using the OpenAI API.
+if __name__ == "__main__":
+    import os
+    from dotenv import load_dotenv
 
-        :param theme: Art theme
-        :param style: Art style
-        :param palette: Color palette
-        :param resolution: Image resolution
-        :param genre: Art genre
-        :param sub_genre: Sub-genre of the art
-        :param extra_details: Additional details for the prompt
-        :return: File path of the generated image
-        """
-        from openai import OpenAI
-        client = OpenAI(api_key=self.api_key)
-        
-        # Enhanced prompt with more context and detail
-        enhanced_prompt = self._create_enhanced_genre_prompt(theme, style, palette, genre, sub_genre, extra_details)
+    # Load environment variables
+    load_dotenv()
+
+    # Test different genres
+    test_genres = ['game', 'abstract', 'movie', 'portrait', 'photography', 'fantasy']
+    
+    # Initialize generator
+    generator = GenreArtGenerator()
+
+    # Test image generation for each genre
+    for genre in test_genres:
+        print(f"\n🎨 Testing genre: {genre}")
         
         try:
-            response = client.images.generate(
-                model="dall-e-3",
-                prompt=enhanced_prompt,
-                size=resolution,
-                quality="hd",  # Upgrade to HD quality
-                n=1,
-                response_format="url"
+            # Generate multiple images
+            images = generator.generate_art(
+                genre=genre, 
+                num_images=2,  # Generate 2 images per genre
+                extra_details='High-quality test generation'
             )
             
-            image_url = response.data[0].url
-            
-            # Download the image
-            img_data = requests.get(image_url).content
-            
-            # Create output directory if it doesn't exist
-            output_dir = os.path.join(os.getcwd(), 'generated_images')
-            os.makedirs(output_dir, exist_ok=True)
-            
-            # Save the image
-            filename = f"{genre}_{sub_genre}_{theme}_{style}_{palette}_hd.png".replace(" ", "_")
-            filepath = os.path.join(output_dir, filename)
-            
-            with open(filepath, 'wb') as handler:
-                handler.write(img_data)
-            
-            self.logger.info(f"High-quality image saved: {filepath}")
-            return filepath
+            # Print results
+            if images:
+                print(f"✅ Successfully generated {len(images)} images for {genre}")
+                for img in images:
+                    print(f"   🖼️ Image metadata: {img['metadata']}")
+            else:
+                print(f"❌ Failed to generate images for {genre}")
         
         except Exception as e:
-            self.logger.error(f"Error generating high-quality image: {e}")
-            return None
+            print(f"🚨 Error generating {genre} images: {e}")
 
-    def _create_enhanced_genre_prompt(self, theme, style, palette, genre, sub_genre, extra_details=None):
-        """
-        Create an enhanced, detailed prompt for image generation.
-        
-        :param theme: Art theme
-        :param style: Art style
-        :param palette: Color palette
-        :param genre: Art genre
-        :param sub_genre: Sub-genre of the art
-        :param extra_details: Additional details for the prompt
-        :return: Enhanced prompt string
-        """
-        # Base prompt structure with increased detail and context
-        base_prompt = (
-            f"A highly detailed, professional {style} artwork in the {genre} genre, "
-            f"specifically in the {sub_genre} sub-genre. Theme: {theme}. "
-            f"Color palette: {palette} tones. "
-            "Exceptional artistic quality, intricate details, "
-            "perfect composition, cinematic lighting, "
-            "sharp focus, high resolution digital art. "
-        )
-        
-        # Add extra details if provided
-        if extra_details:
-            base_prompt += f"Additional context: {extra_details}. "
-        
-        # Add some randomness and artistic flair
-        artistic_modifiers = [
-            "Hyper-realistic rendering. ",
-            "Stunning visual complexity. ",
-            "Breathtaking artistic interpretation. ",
-            "Masterful use of light and shadow. ",
-            "Exceptional level of detail and precision. "
-        ]
-        base_prompt += random.choice(artistic_modifiers)
-        
-        return base_prompt
+    print("\n🏁 Image generation test completed.")

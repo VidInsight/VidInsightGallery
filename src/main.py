@@ -1,207 +1,296 @@
+#!/usr/bin/env python3
+"""
+AIPostGenerator - Automated Instagram Content Generator and Poster
+
+This script automates the process of generating and posting AI-created content to Instagram.
+It uses OpenAI's DALL-E for image generation and handles Instagram posting with proper scheduling.
+
+Features:
+- AI-powered image generation with configurable styles and themes
+- Automated Instagram posting with customizable schedules
+- Comprehensive logging and error handling
+- Configuration-based content management
+
+Required Environment Variables:
+    OPENAI_API_KEY: Your OpenAI API key
+    INSTAGRAM_USERNAME: Your Instagram username
+    INSTAGRAM_PASSWORD: Your Instagram password
+
+Usage:
+    1. Set up environment variables (use .env file or export directly)
+    2. Configure content settings in config.yaml
+    3. Run the script:
+        python main.py [--config path/to/config.yaml] [--test]
+"""
+
 import os
+import sys
+import yaml
 import random
 import logging
-from dotenv import load_dotenv
 import schedule
 import time
-import yaml
+import io
+import argparse
+from datetime import datetime
+from pathlib import Path
 
-from src.modules.art_generator import GenreArtGenerator
+# Add project root to Python path
+project_root = Path(__file__).parent.parent
+sys.path.append(str(project_root))
+
+from dotenv import load_dotenv
+from src.modules.image_generator import GenreArtGenerator
 from src.modules.instagram_poster import InstagramPoster
 
-class AIPostPipeline:
-    def __init__(self, config_path='../config.yaml'):
+# Load environment variables
+load_dotenv()
+
+class AIPostScheduler:
+    """
+    Main scheduler class for handling automated Instagram posts.
+    
+    This class manages the entire workflow of generating AI images and posting
+    them to Instagram according to a configured schedule.
+    """
+    
+    def __init__(self, config_path=None):
         """
-        Initializes the AI Post Pipeline with configuration from YAML file.
+        Initialize the AI Post Scheduler with configuration
         
-        :param config_path: Path to the configuration YAML file
+        Args:
+            config_path (str, optional): Path to config file. Defaults to config.yaml in project root.
         """
-        # Load environment variables
-        load_dotenv()
-
+        # Set default config path if none provided
+        if config_path is None:
+            config_path = project_root / 'config.yaml'
+        
         # Load configuration
-        try:
-            with open(os.path.join(os.path.dirname(__file__), config_path), 'r') as config_file:
-                self.config = yaml.safe_load(config_file)
-        except Exception as e:
-            print(f"Error loading configuration: {e}")
-            self.config = {}  # Fallback to empty config
-
+        with open(config_path, 'r') as file:
+            self.config = yaml.safe_load(file)
+        
         # Configure logging
+        log_dir = project_root / 'logs'
+        log_dir.mkdir(exist_ok=True)
+        
+        log_file = log_dir / 'ai_post_pipeline.log'
+        
         logging.basicConfig(
-            level=getattr(logging, self.config.get('logging', {}).get('level', 'INFO')),
-            format='%(asctime)s - %(levelname)s - %(message)s',
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(
-                    self.config.get('logging', {}).get('file_path', 'ai_post_pipeline.log')
-                ),
-                logging.StreamHandler() if self.config.get('logging', {}).get('console_output', True) else None
+                logging.FileHandler(log_file),
+                logging.StreamHandler()
             ]
         )
         self.logger = logging.getLogger(__name__)
 
-        # Validate environment variables
-        self.instagram_username = os.getenv('INSTAGRAM_USERNAME')
-        self.instagram_password = os.getenv('INSTAGRAM_PASSWORD')
-        self.openai_api_key = os.getenv('OPENAI_API_KEY')
-
-        if not self.instagram_username or not self.instagram_password:
-            self.logger.error("Instagram credentials are missing in environment variables.")
-            raise ValueError("Instagram username or password not set.")
-        
-        if not self.openai_api_key:
-            self.logger.error("OpenAI API key is missing in environment variables.")
-            raise ValueError("OpenAI API key not set.")
-
-        # Initialize modules
-        self.image_generator = GenreArtGenerator(api_key=self.openai_api_key)
-        self.instagram_poster = InstagramPoster(self.instagram_username, self.instagram_password)
-
-    def generate_daily_content(self):
-        """
-        Generates and posts daily content based on configuration.
-        """
+        # Initialize components
         try:
-            # Check if Instagram posting is enabled
-            if not self.config.get('social_media', {}).get('instagram', {}).get('enabled', True):
-                self.logger.info("Instagram posting is disabled in configuration.")
-                return
-
-            # Login to Instagram
-            if not self.instagram_poster.login():
-                self.logger.error("Failed to log in to Instagram. Skipping content generation.")
-                return
-
-            # Generate Posts
-            posts_config = self.config.get('content_generation', {}).get('posts', {})
-            if posts_config.get('enabled', True):
-                post_count = posts_config.get('count', 2)
-                post_genres = posts_config.get('genres', list(self.image_generator.genres.keys()))
-                post_resolution = posts_config.get('resolution', '1080x1080')
-
-                for _ in range(post_count):
-                    genre = random.choice(post_genres)
-                    images = self.image_generator.generate_art(
-                        genre=genre, 
-                        num_images=1, 
-                        resolution=post_resolution
-                    )
-                    
-                    if images:
-                        validated_image = self.instagram_poster.validate_and_resize_image(images[0])
-                        caption = self._generate_caption(genre)
-                        self.instagram_poster.post_photo(validated_image, caption)
-                        self.logger.info(f"Posted image for genre: {genre}")
-
-            # Generate Stories
-            stories_config = self.config.get('content_generation', {}).get('stories', {})
-            if stories_config.get('enabled', True):
-                story_count = stories_config.get('count', 1)
-                story_genres = stories_config.get('genres', list(self.image_generator.genres.keys()))
-                story_resolution = stories_config.get('resolution', '1080x1920')
-
-                for _ in range(story_count):
-                    genre = random.choice(story_genres)
-                    story_images = self.image_generator.generate_art(
-                        genre=genre, 
-                        num_images=1, 
-                        resolution=story_resolution
-                    )
-                    
-                    if story_images:
-                        validated_story = self.instagram_poster.validate_and_resize_image(story_images[0])
-                        self.instagram_poster.post_story(validated_story)
-                        self.logger.info(f"Posted story for genre: {genre}")
-
+            self.image_generator = GenreArtGenerator()
+            self.instagram_poster = InstagramPoster()
+            self.logger.info("Successfully initialized AI Post Scheduler")
         except Exception as e:
-            self.logger.error(f"Error in daily content generation: {e}")
-            self._handle_error(e)
+            self.logger.error(f"Failed to initialize components: {str(e)}")
+            raise
 
-    def _generate_caption(self, genre):
+    def generate_caption(self, genre, style=None, theme=None):
         """
-        Generate a creative caption based on the genre and configuration.
+        Generate a dynamic caption based on configuration
         
-        :param genre: Art genre
-        :return: Generated caption
+        Args:
+            genre (str): The primary genre of the image
+            style (str, optional): The artistic style used
+            theme (str, optional): The thematic element used
+        
+        Returns:
+            str: Generated caption with hashtags
         """
-        # Base genre captions
-        genre_captions = {
-            "abstract": "Dive into the world of abstract art, where imagination knows no bounds! 🎨✨",
-            "game": "Level up your visual experience with this gaming-inspired masterpiece! 🎮🌟",
-            "movie": "Cinematic vibes captured in a single frame. Lights, camera, art! 🎬🖼️",
-            "portrait": "Capturing the essence of human emotion through digital art. 👤🌈",
-            "van_gogh": "Inspired by the master himself - a tribute to Van Gogh's timeless style! 🌻🖌️",
-            "anime": "Anime-inspired art that tells a story beyond words. 🌟📺",
-            "photography": "A moment frozen in time, reimagined through AI. 📸✨",
-            "fantasy": "Step into a realm where fantasy becomes reality. 🐉🌈"
-        }
-        
-        # Get caption configuration
         captions_config = self.config.get('captions', {})
         
-        # Select caption
-        caption = genre_captions.get(genre, "Art generated by AI, inspired by endless creativity! 🚀🎨")
+        # Base captions with genre
+        base_captions = [
+            f"🎨 {genre.capitalize()} AI-generated art exploring creativity and technology",
+            f"✨ Diving into the world of {genre} through AI-powered imagination",
+            f"🤖 Pushing artistic boundaries with {genre} themed AI art"
+        ]
         
-        # Add emojis if enabled
+        # Add style and theme details
+        captions = []
+        for base in base_captions:
+            caption = base
+            if style:
+                caption += f" in {style} style"
+            if theme:
+                caption += f", exploring the theme of {theme}"
+            captions.append(caption)
+        
+        # Add hashtags if enabled
         if captions_config.get('use_emojis', True):
-            # Emojis are already in the predefined captions
-            pass
+            hashtag_style = captions_config.get('hashtag_style', 'comprehensive')
+            
+            if hashtag_style == 'comprehensive':
+                hashtags = captions_config.get('custom_hashtags', []) + [
+                    f"#{genre.capitalize()}Art", 
+                    "#AICreativity", 
+                    "#GenerativeArt",
+                    "#AIArt",
+                    "#GenerativeAI",
+                    "#ArtificialIntelligence"
+                ]
+                
+                # Add style and theme specific hashtags
+                if style:
+                    hashtags.append(f"#{style.replace(' ', '')}Art")
+                if theme:
+                    hashtags.append(f"#{theme.replace(' ', '').replace('\'', '')}")
+                
+            elif hashtag_style == 'minimal':
+                hashtags = [f"#{genre.capitalize()}Art"]
+            else:
+                hashtags = []
+            
+            caption = random.choice(captions) + "\n\n" + " ".join(hashtags)
         
-        # Add hashtags based on configuration
-        hashtag_style = captions_config.get('hashtag_style', 'comprehensive')
-        custom_hashtags = captions_config.get('custom_hashtags', [])
-        
-        if hashtag_style == 'comprehensive':
-            hashtags = f"\n\n#AIArt #GenerativeArt #{genre.capitalize()}Art " + \
-                       " ".join(custom_hashtags)
-        elif hashtag_style == 'minimal':
-            hashtags = f"\n\n#{genre.capitalize()}Art"
-        else:
-            hashtags = ""
-        
-        return caption + hashtags
+        return caption
 
-    def _handle_error(self, error):
+    def post_content(self, content_type='posts'):
         """
-        Handle errors based on configuration.
+        Generate and post content based on configuration
         
-        :param error: Exception that occurred
+        Args:
+            content_type (str): Type of content to post ('posts' or 'stories')
+            
+        Returns:
+            bool: True if successful, False otherwise
         """
-        error_config = self.config.get('error_handling', {})
-        retry_attempts = error_config.get('retry_attempts', 3)
-        retry_delay = error_config.get('retry_delay_minutes', 15)
+        try:
+            # Get content configuration
+            content_config = self.config['content_generation'][content_type]
+            
+            if not content_config.get('enabled', False):
+                self.logger.info(f"{content_type.capitalize()} generation is disabled.")
+                return False
+
+            # Get random genre from configured genres
+            genre = random.choice(content_config['genres'])
+            
+            # Get style and theme for the genre
+            style = random.choice(content_config['styles'].get(genre, [None]))
+            theme = random.choice(content_config['themes'].get(genre, [None]))
+            palette = random.choice(content_config['palettes'].get(genre, [None]))
+            
+            self.logger.info(f"Generating {genre} image with style: {style}, theme: {theme}, palette: {palette}")
+            
+            # Generate image
+            generated_images = self.image_generator.generate_art(
+                genre=genre,
+                num_images=1,
+                resolution=content_config.get('resolution', "1024x1024"),
+                extra_details=None
+            )
+            
+            if not generated_images:
+                self.logger.error("Failed to generate image")
+                return False
+            
+            # Get the first generated image and its metadata
+            image_data = generated_images[0]
+            
+            # Generate caption using metadata
+            caption = self.generate_caption(
+                genre=image_data['metadata']['genre'],
+                style=image_data['metadata']['style'],
+                theme=image_data['metadata']['theme']
+            )
+            
+            # Create BytesIO object from image data
+            image_io = io.BytesIO(image_data['image_data'])
+            
+            # Post to Instagram
+            self.instagram_poster.post_image(
+                image_io,
+                caption=caption,
+                is_story=(content_type == 'stories')
+            )
+            
+            self.logger.info(f"Successfully posted {genre} {content_type}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error in posting {content_type}: {str(e)}")
+            return False
+
+    def run_daily_schedule(self):
+        """
+        Set up daily posting schedule based on configuration
+        """
+        daily_runs = self.config.get('scheduling', {}).get('daily_runs', [])
         
-        # Log error details
-        self.logger.error(f"Error details: {error}")
-        
-        # Send error notifications if enabled
-        if error_config.get('send_error_notifications', False):
-            notification_email = error_config.get('notification_email')
-            if notification_email:
-                # Implement email notification logic here
-                self.logger.info(f"Error notification sent to {notification_email}")
+        for run_config in daily_runs:
+            if run_config.get('enabled', False):
+                schedule_time = run_config.get('time', '10:00')
+                
+                # Schedule posts
+                schedule.every().day.at(schedule_time).do(self.post_content, 'posts')
+                
+                # Schedule stories if enabled
+                if self.config['content_generation'].get('stories', {}).get('enabled', False):
+                    schedule.every().day.at(schedule_time).do(self.post_content, 'stories')
+                
+                self.logger.info(f"Scheduled daily run at {schedule_time}")
+
+    def start(self):
+        """
+        Start the scheduling and keep the script running
+        """
+        try:
+            self.run_daily_schedule()
+            self.logger.info("AI Post Scheduler started. Waiting for scheduled tasks...")
+            
+            while True:
+                schedule.run_pending()
+                time.sleep(60)  # Check every minute instead of every second
+                
+        except KeyboardInterrupt:
+            self.logger.info("Scheduler stopped by user")
+        except Exception as e:
+            self.logger.error(f"Scheduler error: {str(e)}")
+            raise
+
+def test_run(config_path=None):
+    """
+    Perform a test run of the content generation and posting process
+    
+    Args:
+        config_path (str, optional): Path to config file
+    """
+    try:
+        scheduler = AIPostScheduler(config_path)
+        scheduler.post_content('posts')
+    except Exception as e:
+        logging.error(f"Test run failed: {str(e)}")
+        sys.exit(1)
 
 def main():
     """
-    Main function to run the AI Post Pipeline
+    Main entry point for the AIPostGenerator
     """
-    pipeline = AIPostPipeline()
+    parser = argparse.ArgumentParser(description='AI-powered Instagram content generator and poster')
+    parser.add_argument('--config', type=str, help='Path to configuration file')
+    parser.add_argument('--test', action='store_true', help='Perform a test run')
     
-    # Schedule runs based on configuration
-    scheduling_config = pipeline.config.get('scheduling', {}).get('daily_runs', [])
+    args = parser.parse_args()
     
-    # Run immediately
-    pipeline.generate_daily_content()
-    
-    # Schedule daily runs
-    for run in scheduling_config:
-        if run.get('enabled', False):
-            schedule.every().day.at(run['time']).do(pipeline.generate_daily_content)
-    
-    # Keep the script running
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    try:
+        if args.test:
+            test_run(args.config)
+        else:
+            scheduler = AIPostScheduler(args.config)
+            scheduler.start()
+    except Exception as e:
+        logging.error(f"Failed to start scheduler: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

@@ -1,5 +1,4 @@
 content_generation:
-  # Daily content generation settings
   posts:
     enabled: true
     count: 2
@@ -8,25 +7,180 @@ content_generation:
       - game
       - movie
       - portrait
-      - van_gogh
-      - anime
       - photography
       - fantasy
-    resolution: "1080x1080"  # Square format for posts
+    
+    # Style configurations for each genre
+    styles:
+      abstract:
+        - "surreal"
+        - "modern"
+        - "cubist"
+        - "minimalist"
+      game:
+        - "pixel art"
+        - "hand-painted"
+        - "3D render"
+      movie:
+        - "cinematic"
+        - "dramatic"
+        - "realistic"
+      portrait:
+        - "realistic"
+        - "digital painting"
+        - "classical"
+      photography:
+        - "cinematic"
+        - "photorealistic"
+        - "documentary"
+      fantasy:
+        - "dark surrealism"
+        - "fantasy painting"
+        - "mythical"
+    
+    # Theme configurations
+    themes:
+      abstract:
+        - "geometric chaos"
+        - "color burst"
+        - "dreamscapes"
+      game:
+        - "cyberpunk city"
+        - "alien planet"
+        - "fantasy world"
+      movie:
+        - "sci-fi epic"
+        - "cosmic horror"
+        - "historical drama"
+      portrait:
+        - "fantasy character"
+        - "mystical figure"
+        - "regal elegance"
+      photography:
+        - "urban exploration"
+        - "minimalist design"
+        - "nature's beauty"
+      fantasy:
+        - "mystical realms"
+        - "ancient gods"
+        - "post-apocalyptic worlds"
+    
+    # Color palette configurations
+    palettes:
+      abstract:
+        - "vivid"
+        - "monochrome"
+        - "gradient"
+      game:
+        - "vivid"
+        - "dark"
+        - "neon"
+      movie:
+        - "monochrome"
+        - "cool tones"
+        - "warm tones"
+      portrait:
+        - "soft pastels"
+        - "monochrome"
+        - "vivid"
+      photography:
+        - "natural colors"
+        - "monochrome"
+        - "soft gradients"
+      fantasy:
+        - "vivid"
+        - "muted earth tones"
+        - "dark fantasy"
+    
+    resolution: "1024x1024"  # Square format for posts, supported by DALL-E 3
     
   stories:
     enabled: true
-    count: 1
+    count: 5
     genres: 
       - abstract
       - game
       - movie
       - portrait
-      - van_gogh
-      - anime
       - photography
       - fantasy
-    resolution: "1080x1920"  # Story format
+    styles: &styles
+      abstract:
+        - "surreal"
+        - "modern"
+        - "cubist"
+        - "minimalist"
+      game:
+        - "pixel art"
+        - "hand-painted"
+        - "3D render"
+      movie:
+        - "cinematic"
+        - "dramatic"
+        - "realistic"
+      portrait:
+        - "realistic"
+        - "digital painting"
+        - "classical"
+      photography:
+        - "cinematic"
+        - "photorealistic"
+        - "documentary"
+      fantasy:
+        - "dark surrealism"
+        - "fantasy painting"
+        - "mythical"
+    themes: &themes
+      abstract:
+        - "geometric chaos"
+        - "color burst"
+        - "dreamscapes"
+      game:
+        - "cyberpunk city"
+        - "alien planet"
+        - "fantasy world"
+      movie:
+        - "sci-fi epic"
+        - "cosmic horror"
+        - "historical drama"
+      portrait:
+        - "fantasy character"
+        - "mystical figure"
+        - "regal elegance"
+      photography:
+        - "urban exploration"
+        - "minimalist design"
+        - "nature's beauty"
+      fantasy:
+        - "mystical realms"
+        - "ancient gods"
+        - "post-apocalyptic worlds"
+    palettes: &palettes
+      abstract:
+        - "vivid"
+        - "monochrome"
+        - "gradient"
+      game:
+        - "vivid"
+        - "dark"
+        - "neon"
+      movie:
+        - "monochrome"
+        - "cool tones"
+        - "warm tones"
+      portrait:
+        - "soft pastels"
+        - "monochrome"
+        - "vivid"
+      photography:
+        - "natural colors"
+        - "monochrome"
+        - "soft gradients"
+      fantasy:
+        - "vivid"
+        - "muted earth tones"
+        - "dark fantasy"
+    resolution: "1024x1024"  # Story format, supported by DALL-E 3
 
 scheduling:
   # Posting schedule settings

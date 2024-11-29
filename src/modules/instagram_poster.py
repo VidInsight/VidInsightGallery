@@ -1,197 +1,175 @@
 from instagrapi import Client
+from instagrapi.exceptions import (
+    LoginRequired,
+    ChallengeRequired
+)
+
 import os
 import logging
 import time
 from dotenv import load_dotenv
 from PIL import Image
+import io
+import tempfile
 
 class InstagramPoster:
-    TARGET_SIZE = (1080, 1920)  # Default Instagram Story resolution
-    MAX_FILE_SIZE_MB = 8       # Maximum file size for uploads (in MB)
-    SUPPORTED_FORMATS = ('.png', '.jpg', '.jpeg')  # Supported image formats
+    TARGET_SIZE = (1080, 1080)  # Default Instagram Post resolution
+    STORY_SIZE = (1080, 1920)   # Default Instagram Story resolution
+    MAX_FILE_SIZE_MB = 8        # Maximum file size for uploads (in MB)
+    SUPPORTED_FORMATS = ('PNG', 'JPEG')  # Supported image formats
 
-    def __init__(self, username, password):
+    def __init__(self, username=None, password=None):
         """
         Initializes the InstagramPoster class.
 
-        :param username: Instagram username
-        :param password: Instagram password
+        Args:
+            username (str, optional): Instagram username. Defaults to env variable.
+            password (str, optional): Instagram password. Defaults to env variable.
         """
+        self.username = username or os.getenv('INSTAGRAM_USERNAME')
+        self.password = password or os.getenv('INSTAGRAM_PASSWORD')
+        
+        if not self.username or not self.password:
+            raise ValueError("Instagram credentials not provided")
+        
+        # Create Client instance
         self.client = Client()
-        self.username = username
-        self.password = password
-
+        
         # Logging configuration
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger(__name__)
+        
+        # Login during initialization
+        self.login()
     
     def login(self):
         """
         Logs into the Instagram account using the provided credentials.
-
-        :return: True if login is successful, False otherwise
         """
         try:
-            self.client.login(self.username, self.password)
+            self.client.login(username=self.username, password=self.password)
             self.logger.info("Successfully logged into Instagram.")
             return True
+        except LoginRequired as e:
+            self.logger.error(f"Login required: {e}")
+            raise
+        except ChallengeRequired as e:
+            self.logger.error(f"Challenge required during login: {e}")
+            raise
         except Exception as e:
-            self.logger.error(f"Failed to log in: {e}")
-            return False
+            self.logger.error(f"Unexpected error during Instagram login: {type(e).__name__} - {str(e)}")
+            raise
 
-    def validate_and_resize_image(self, image_path, target_size=None, padding_color=(0, 0, 0)):
+    def process_image(self, image_data, is_story=False):
         """
-        Validates and resizes the image to meet Instagram Story requirements.
-
-        :param image_path: Path to the image file
-        :param target_size: Target resolution (width, height) for Stories (default: 1080x1920)
-        :param padding_color: RGB color for padding (default: black)
-        :return: Path to the validated and resized image
+        Process image data to meet Instagram requirements.
+        
+        Args:
+            image_data: Either BytesIO object or path to image file
+            is_story (bool): Whether the image is for a story post
+            
+        Returns:
+            BytesIO: Processed image data
         """
         try:
-            # Use default target size if not provided
-            if target_size is None:
-                target_size = self.TARGET_SIZE
-
-            # Open the image
-            img = Image.open(image_path)
-
-            # Check file size
-            file_size_mb = os.path.getsize(image_path) / (1024 * 1024)
-            if file_size_mb > self.MAX_FILE_SIZE_MB:
-                self.logger.warning(f"Image size {file_size_mb}MB exceeds max limit of {self.MAX_FILE_SIZE_MB}MB")
-
-            # Check file format
-            if not image_path.lower().endswith(self.SUPPORTED_FORMATS):
-                raise ValueError(f"Unsupported image format. Supported formats: {self.SUPPORTED_FORMATS}")
-
-            # Calculate aspect ratio and resize
-            img.thumbnail(target_size, Image.Resampling.LANCZOS)  # Updated from ANTIALIAS
+            # Handle both BytesIO and file path inputs
+            if isinstance(image_data, (str, os.PathLike)):
+                img = Image.open(image_data)
+            elif isinstance(image_data, io.BytesIO):
+                img = Image.open(image_data)
+            else:
+                raise ValueError("image_data must be either a file path or BytesIO object")
             
-            # Create a new image with the target size and paste the resized image
-            new_img = Image.new('RGB', target_size, padding_color)
-            paste_x = (target_size[0] - img.width) // 2
-            paste_y = (target_size[1] - img.height) // 2
+            # Set target size based on post type
+            target_size = self.STORY_SIZE if is_story else self.TARGET_SIZE
+            
+            # Convert to RGB if necessary
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Calculate aspect ratio
+            aspect_ratio = img.width / img.height
+            target_ratio = target_size[0] / target_size[1]
+            
+            if aspect_ratio > target_ratio:
+                # Image is wider than target ratio
+                new_width = target_size[0]
+                new_height = int(new_width / aspect_ratio)
+            else:
+                # Image is taller than target ratio
+                new_height = target_size[1]
+                new_width = int(new_height * aspect_ratio)
+            
+            # Resize image maintaining aspect ratio
+            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Create new image with padding
+            new_img = Image.new('RGB', target_size, (255, 255, 255))
+            paste_x = (target_size[0] - new_width) // 2
+            paste_y = (target_size[1] - new_height) // 2
             new_img.paste(img, (paste_x, paste_y))
-
-            # Save the resized image
-            output_path = os.path.join(os.path.dirname(image_path), f"resized_{os.path.basename(image_path)}")
-            new_img.save(output_path)
-
-            self.logger.info(f"Adjusting aspect ratio for image: {image_path}")
-            return output_path
-
+            
+            # Save to BytesIO
+            output = io.BytesIO()
+            new_img.save(output, format='JPEG', quality=95)
+            output.seek(0)
+            
+            return output
+            
         except Exception as e:
-            self.logger.error(f"Error resizing image: {e}")
-            return image_path  # Return original path if resizing fails
+            self.logger.error(f"Error processing image: {e}")
+            raise
 
-    def validate_image(self, image_path):
+    def post_image(self, image_data, caption, is_story=False):
         """
-        Validates if the image is supported and meets Instagram's file size requirements.
-
-        :param image_path: Path to the image file
-        :return: True if valid, False otherwise
+        Post an image to Instagram.
+        
+        Args:
+            image_data: Either BytesIO object or path to image file
+            caption (str): Caption for the post
+            is_story (bool): Whether to post as a story
+            
+        Returns:
+            bool: True if successful, False otherwise
         """
         try:
-            if not os.path.exists(image_path):
-                raise FileNotFoundError(f"Image file not found: {image_path}")
+            # Process the image
+            processed_image = self.process_image(image_data, is_story)
             
-            if not image_path.lower().endswith(self.SUPPORTED_FORMATS):
-                raise ValueError(f"Unsupported image format: {image_path}")
-
-            file_size = os.path.getsize(image_path) / (1024 * 1024)  # Convert bytes to MB
-            if file_size > self.MAX_FILE_SIZE_MB:
-                raise ValueError(f"Image file is too large ({file_size:.2f} MB): {image_path}")
-
-            return True
-        except Exception as e:
-            self.logger.error(f"Image validation failed: {e}")
-            return False
-
-    def post_story(self, image_path):
-        """
-        Uploads an image to Instagram as a Story.
-
-        :param image_path: Path to the image file
-        :return: True if the upload is successful, False otherwise
-        """
-        try:
-            if not self.validate_image(image_path):
-                return False
-
-            validated_path = self.validate_and_resize_image(image_path)
-
-            # Upload the image as a Story
-            self.logger.info(f"Uploading image as a story: {validated_path}")
-            self.client.photo_upload_to_story(validated_path)
-            self.logger.info(f"Image uploaded successfully as a story: {validated_path}")
-            return True
-        except Exception as e:
-            self.logger.error(f"Error uploading image as a story: {e}")
-            return False
-
-    def post_stories_batch(self, image_paths, retry_attempts=3, delay=2):
-        """
-        Posts multiple images to Instagram as Stories sequentially.
-
-        :param image_paths: List of image file paths
-        :param retry_attempts: Number of retry attempts for failed uploads
-        :param delay: Delay in seconds between each upload
-        """
-        for i, image_path in enumerate(image_paths):
-            success = False
-
-            for attempt in range(1, retry_attempts + 1):
-                self.logger.info(f"Attempting to upload story {i+1}/{len(image_paths)}: {image_path} (Attempt {attempt})")
-                success = self.post_story(image_path)
-                if success:
-                    break
-                self.logger.warning(f"Retrying in {delay} seconds...")
-                time.sleep(delay)
-
-            if not success:
-                self.logger.error(f"Failed to upload story after {retry_attempts} attempts: {image_path}")
-
-    def upload_post(self, image_path, caption=''):
-        """
-        Uploads an image post to Instagram.
-
-        :param image_path: Path to the image file to upload
-        :param caption: Optional caption for the post
-        :return: True if upload is successful, False otherwise
-        """
-        try:
-            # Validate image before upload
-            validated_image_path = self.validate_and_resize_image(image_path)
+            # Create a temporary file for the processed image
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+                temp_file.write(processed_image.getvalue())
+                temp_path = temp_file.name
             
-            # Upload the image
-            media = self.client.photo_upload(validated_image_path, caption)
-            
-            self.logger.info(f"Successfully uploaded post. Media ID: {media.pk}")
-            return True
+            try:
+                if is_story:
+                    result = self.client.photo_upload_to_story(temp_path, caption)
+                    self.logger.info("Successfully posted story to Instagram")
+                else:
+                    result = self.client.photo_upload(temp_path, caption)
+                    self.logger.info("Successfully posted image to Instagram feed")
+                
+                return True
+                
+            finally:
+                # Clean up temporary file
+                os.unlink(temp_path)
+                
         except Exception as e:
-            self.logger.error(f"Failed to upload post: {e}")
-            return False
+            self.logger.error(f"Failed to post image: {e}")
+            raise
 
 # Main script for testing
 if __name__ == "__main__":
     load_dotenv()
-
-    username = os.getenv("INSTAGRAM_USERNAME")
-    password = os.getenv("INSTAGRAM_PASSWORD")
-    if not username or not password:
-        raise EnvironmentError("Please set INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD in your environment variables.")
-
-    poster = InstagramPoster(username, password)
-
-    if poster.login():
-        current_dir = os.getcwd()
-        image_files = [os.path.join(current_dir, f) for f in os.listdir(current_dir) if f.lower().endswith(poster.SUPPORTED_FORMATS)]
-
-        if image_files:
-            poster.post_stories_batch(image_files)
-        else:
-            poster.logger.info("No image files found in the current directory.")
+    
+    # Test the poster
+    poster = InstagramPoster()
+    
+    # Test with a local image file
+    test_image_path = "path/to/test/image.jpg"
+    if os.path.exists(test_image_path):
+        poster.post_image(test_image_path, "Test post from InstagramPoster")
