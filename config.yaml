@@ -183,12 +183,13 @@ content_generation:
     resolution: "1024x1024"  # Story format, supported by DALL-E 3
 
 scheduling:
-  # Posting schedule settings
   daily_runs:
-    - time: "10:00"  # First daily run
+    - time: "12:00"  # Sabah erken
       enabled: true
-    - time: "18:00"  # Optional second run
-      enabled: false
+    - time: "15:00"  # Öğlen
+      enabled: true
+    - time: "20:30"  # Akşam
+      enabled: true
 
 captions:
   # Caption generation settings

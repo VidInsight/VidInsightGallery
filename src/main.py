@@ -258,19 +258,6 @@ class AIPostScheduler:
             self.logger.error(f"Scheduler error: {str(e)}")
             raise
 
-def test_run(config_path=None):
-    """
-    Perform a test run of the content generation and posting process
-    
-    Args:
-        config_path (str, optional): Path to config file
-    """
-    try:
-        scheduler = AIPostScheduler(config_path)
-        scheduler.post_content('posts')
-    except Exception as e:
-        logging.error(f"Test run failed: {str(e)}")
-        sys.exit(1)
 
 def main():
     """
@@ -283,11 +270,8 @@ def main():
     args = parser.parse_args()
     
     try:
-        if args.test:
-            test_run(args.config)
-        else:
-            scheduler = AIPostScheduler(args.config)
-            scheduler.start()
+        scheduler = AIPostScheduler(args.config)
+        scheduler.start()
     except Exception as e:
         logging.error(f"Failed to start scheduler: {str(e)}")
         sys.exit(1)
